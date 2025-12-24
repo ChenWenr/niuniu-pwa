@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <!-- PWA 关键配置 -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="牛牛">
+  <meta name="theme-color" content="#d32f2f">
+  <title>🐮牛牛牌型分析与胜率计算器</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 16px;
+      background: #f9f9f9;
+      color: #333;
+      line-height: 1.6;
+    }
+    h1 {
+      text-align: center;
+      color: #d32f2f;
+      margin-bottom: 20px;
+    }
+    .input-group {
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      margin-bottom: 4px;
+      font-weight: bold;
+    }
+    input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 16px;
+      box-sizing: border-box;
+    }
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .button-group button {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    #calcBtn {
+      background: #1976d2;
+      color: white;
+    }
+    #calcBtn:hover {
+      background: #1565c0;
+    }
+    #clearBtn {
+      background: #f57c00;
+      color: white;
+    }
+    #clearBtn:hover {
+      background: #e65100;
+    }
+    .result {
+      margin-top: 20px;
+      padding: 16px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    .error {
+      color: red;
+      margin-top: 8px;
+    }
+    .highlight {
+      font-weight: bold;
+      color: #d32f2f;
+    }
+    ul {
+      padding-left: 20px;
+    }
+    .section-title {
+      margin-top: 16px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>🐮牛牛犇计算器</h1>
+
+  <div class="input-group">
+    <label for="myHand">我的手牌（5张）</label>
+    <input id="myHand" placeholder="示例：A27K2 或 10JQKA" />
+  </div>
+
+  <div class="input-group">
+    <label for="opponentVisible">对手玩家明牌（可选）</label>
+    <input id="opponentVisible" placeholder="示例：A23KQJ（每3张为1人）" />
+  </div>
+
+  <div class="input-group">
+    <label for="othersVisible">其他玩家明牌（可选，仅用于排除）</label>
+    <input id="othersVisible" placeholder="示例：A58" />
+  </div>
+
+  <div class="button-group">
+    <button id="calcBtn" onclick="calculate()">计算</button>
+    <button id="clearBtn" onclick="clearAll()">一键清除</button>
+  </div>
+
+  <div id="errorMessage" class="error"></div>
+  <div id="result" class="result" style="display:none;"></div>
+
+  <script>
+    const RANK_ORDER = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+    const RANK_VALUE = {
+      'A': 1,
+      '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,
+      '8': 8, '9': 9, '10': 10, 'J': 10, 'Q': 10, 'K': 10
+    };
+
+    function parseInput(str) {
+      if (!str) return [];
+      str = str.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      let cards = [];
+      let i = 0;
+      while (i < str.length) {
+        if (str[i] === '1' && str[i+1] === '0') {
+          cards.push('10');
+          i += 2;
+        } else if (['A','2','3','4','5','6','7','8','9','J','Q','K'].includes(str[i])) {
+          cards.push(str[i]);
+          i++;
+        } else {
+          return null;
+        }
+      }
+      return cards;
+    }
+
+    function validateCards(cards, expectedCount = null, multipleOf3 = false) {
+      if (!cards) return false;
+      if (expectedCount !== null && cards.length !== expectedCount) return false;
+      if (multipleOf3 && cards.length % 3 !== 0) return false;
+      for (let c of cards) {
+        if (!RANK_VALUE.hasOwnProperty(c)) return false;
+      }
+      return true;
+    }
+
+    function countOccurrences(allCards) {
+      const count = {};
+      const overLimit = new Set();
+      for (let c of allCards) {
+        count[c] = (count[c] || 0) + 1;
+        if (count[c] > 4) {
+          overLimit.add(c);
+        }
+      }
+      if (overLimit.size > 0) {
+        return Array.from(overLimit);
+      }
+      return true;
+    }
+
+    function getDeckMinus(usedCards) {
+      const fullDeck = [];
+      for (let r of RANK_ORDER) {
+        for (let i = 0; i < 4; i++) {
+          fullDeck.push(r);
+        }
+      }
+      const usedCount = {};
+      for (let c of usedCards) {
+        usedCount[c] = (usedCount[c] || 0) + 1;
+      }
+      const remaining = [];
+      for (let card of fullDeck) {
+        if ((usedCount[card] || 0) > 0) {
+          usedCount[card]--;
+        } else {
+          remaining.push(card);
+        }
+      }
+      return remaining;
+    }
+
+    function getCardType(hand) {
+      const values = hand.map(c => RANK_VALUE[c]);
+      const ranks = hand.map(c => RANK_ORDER.indexOf(c));
+
+      const counts = {};
+      for (let v of hand) counts[v] = (counts[v] || 0) + 1;
+      if (Object.values(counts).some(x => x === 4)) {
+        return { type: 'bomb', rank: Math.max(...ranks) };
+      }
+
+      if (hand.every(c => ['J','Q','K'].includes(c))) {
+        return { type: 'fiveFace', rank: Math.max(...ranks) };
+      }
+
+      let maxNiu = -1;
+      for (let i = 0; i < 5; i++) {
+        for (let j = i + 1; j < 5; j++) {
+          for (let k = j + 1; k < 5; k++) {
+            if ((values[i] + values[j] + values[k]) % 10 === 0) {
+              const rest = [0,1,2,3,4].filter(x => ![i,j,k].includes(x));
+              const niu = (values[rest[0]] + values[rest[1]]) % 10;
+              if (niu > maxNiu) maxNiu = niu;
+            }
+          }
+        }
+      }
+
+      if (maxNiu >= 0) {
+        return { type: 'niu', value: maxNiu, rank: Math.max(...ranks) };
+      }
+
+      return { type: 'noNiu', rank: Math.max(...ranks), sortedRanks: [...ranks].sort((a,b)=>b-a) };
+    }
+
+    function getNiuStrength(value) {
+      return value === 0 ? 10 : value; // 牛牛 → 10
+    }
+
+    function compareHands(a, b) {
+      const ta = getCardType(a);
+      const tb = getCardType(b);
+
+      const typeOrder = { bomb: 4, fiveFace: 3, niu: 2, noNiu: 1 };
+
+      if (typeOrder[ta.type] !== typeOrder[tb.type]) {
+        return typeOrder[ta.type] - typeOrder[tb.type];
+      }
+
+      if (ta.type === 'bomb' || ta.type === 'fiveFace') {
+        return ta.rank - tb.rank;
+      }
+
+      if (ta.type === 'niu') {
+        const strA = getNiuStrength(ta.value);
+        const strB = getNiuStrength(tb.value);
+        if (strA !== strB) return strA - strB;
+        return ta.rank - tb.rank;
+      }
+
+      if (ta.type === 'noNiu') {
+        for (let i = 0; i < 5; i++) {
+          if (ta.sortedRanks[i] !== tb.sortedRanks[i]) {
+            return ta.sortedRanks[i] - tb.sortedRanks[i];
+          }
+        }
+        return 0;
+      }
+
+      return 0;
+    }
+
+    function getRandomSample(arr, n) {
+      const copy = [...arr];
+      const result = [];
+      for (let i = 0; i < n && copy.length > 0; i++) {
+        const idx = Math.floor(Math.random() * copy.length);
+        result.push(copy.splice(idx, 1)[0]);
+      }
+      return result;
+    }
+
+    function getTypeName(t) {
+      if (t.type === 'bomb') return '炸弹牛';
+      if (t.type === 'fiveFace') return '五花牛';
+      if (t.type === 'niu') {
+        return t.value === 0 ? '牛牛' : `牛${t.value}`;
+      }
+      return '无牛';
+    }
+
+    function calculate() {
+      const errorMsg = document.getElementById('errorMessage');
+      const resultDiv = document.getElementById('result');
+      errorMsg.textContent = '';
+      resultDiv.style.display = 'none';
+
+      const myInput = document.getElementById('myHand').value.trim();
+      const oppInput = document.getElementById('opponentVisible').value.trim();
+      const othersInput = document.getElementById('othersVisible').value.trim();
+
+      const myCards = parseInput(myInput);
+      const oppCards = parseInput(oppInput) || [];
+      const othersCards = parseInput(othersInput) || [];
+
+      if (myCards === null) {
+        errorMsg.textContent = '我的手牌包含非法字符';
+        return;
+      }
+      if (!validateCards(myCards, 5)) {
+        errorMsg.textContent = '我的手牌必须是5张';
+        return;
+      }
+
+      // 仅输入我的手牌 → 直接显示牌型
+      if (oppInput === '' && othersInput === '') {
+        const myType = getCardType(myCards);
+        resultDiv.innerHTML = `<div>🃏 您的牌型是：<span class="highlight">${getTypeName(myType)}</span></div>`;
+        resultDiv.style.display = 'block';
+        return;
+      }
+
+      if (oppCards === null || othersCards === null) {
+        errorMsg.textContent = '输入包含非法字符（如单独的“1”）';
+        return;
+      }
+
+      if (!validateCards(oppCards, null, true)) {
+        errorMsg.textContent = '对手明牌数量必须是3的倍数';
+        return;
+      }
+
+      if (!validateCards(othersCards, null, true)) {
+        errorMsg.textContent = '其他玩家明牌数量必须是3的倍数';
+        return;
+      }
+
+      const allUsed = [...myCards, ...oppCards, ...othersCards];
+      const overLimitResult = countOccurrences(allUsed);
+      if (overLimitResult !== true) {
+        errorMsg.textContent = `同一张牌 ${overLimitResult.join('、')} 不能超过4张`;
+        return;
+      }
+
+      if (allUsed.length > 52) {
+        errorMsg.textContent = '总牌数不能超过52张';
+        return;
+      }
+
+      const deck = getDeckMinus(allUsed);
+      const opponentPlayers = [];
+      for (let i = 0; i < oppCards.length; i += 3) {
+        opponentPlayers.push(oppCards.slice(i, i + 3));
+      }
+
+      const myType = getCardType(myCards);
+      let winCount = 0;
+      const totalSim = 5000;
+      const totalOpp = opponentPlayers.length * totalSim;
+
+      const largerTypeCount = {};
+      const smallerTypeCount = {};
+
+      for (let sim = 0; sim < totalSim; sim++) {
+        let currentDeck = [...deck];
+        let allOppHands = [];
+        let valid = true;
+
+        for (let p of opponentPlayers) {
+          if (currentDeck.length < 2) {
+            valid = false;
+            break;
+          }
+          const draw = getRandomSample(currentDeck, 2);
+          if (draw.length < 2) {
+            valid = false;
+            break;
+          }
+          const fullHand = [...p, ...draw];
+          allOppHands.push(fullHand);
+
+          for (let c of draw) {
+            const idx = currentDeck.indexOf(c);
+            if (idx !== -1) currentDeck.splice(idx, 1);
+          }
+        }
+
+        if (!valid) continue;
+
+        let iWinAll = true;
+        for (let oppHand of allOppHands) {
+          const cmp = compareHands(myCards, oppHand);
+          const oppType = getCardType(oppHand);
+          const key = getTypeName(oppType);
+
+          if (cmp > 0) {
+            smallerTypeCount[key] = (smallerTypeCount[key] || 0) + 1;
+          } else if (cmp < 0) {
+            largerTypeCount[key] = (largerTypeCount[key] || 0) + 1;
+          }
+
+          if (cmp <= 0) {
+            iWinAll = false;
+          }
+        }
+
+        if (iWinAll) {
+          winCount++;
+        }
+      }
+
+      const winRate = (winCount / totalSim * 100).toFixed(2);
+
+      const totalSmaller = Object.values(smallerTypeCount).reduce((a,b) => a + b, 0);
+      const totalLarger = Object.values(largerTypeCount).reduce((a,b) => a + b, 0);
+      const pctSmaller = totalOpp > 0 ? (totalSmaller / totalOpp * 100).toFixed(2) : 0;
+      const pctLarger = totalOpp > 0 ? (totalLarger / totalOpp * 100).toFixed(2) : 0;
+
+      const sortTypes = (obj) => {
+        return Object.entries(obj)
+          .map(([name, count]) => ({
+            name,
+            pct: totalOpp > 0 ? ((count / totalOpp) * 100).toFixed(2) : 0
+          }))
+          .sort((a, b) => parseFloat(b.pct) - parseFloat(a.pct))
+          .filter(item => parseFloat(item.pct) > 0);
+      };
+
+      const sortedSmaller = sortTypes(smallerTypeCount);
+      const sortedLarger = sortTypes(largerTypeCount);
+
+      let resultHTML = `<div><span class="highlight">我的牌型：</span>${getTypeName(myType)}</div>`;
+      resultHTML += `<div>✅ 胜率：<span class="highlight">${winRate}%</span></div>`;
+      resultHTML += `<div>📊 模拟次数：${totalSim}</div>`;
+
+      // 先显示“比我小的”
+      if (sortedSmaller.length > 0) {
+        resultHTML += `<div class="section-title">对手牌型（比我小的概率：${pctSmaller}%）</div><ul>`;
+        for (let item of sortedSmaller) {
+          resultHTML += `<li>${item.name}: ${item.pct}%</li>`;
+        }
+        resultHTML += '</ul>';
+      } else {
+        resultHTML += `<div class="section-title">对手牌型（比我小的概率：0.00%）</div><div>无</div>`;
+      }
+
+      // 后显示“比我大的”
+      if (sortedLarger.length > 0) {
+        resultHTML += `<div class="section-title">对手牌型（比我大的概率：${pctLarger}%）</div><ul>`;
+        for (let item of sortedLarger) {
+          resultHTML += `<li>${item.name}: ${item.pct}%</li>`;
+        }
+        resultHTML += '</ul>';
+      } else {
+        resultHTML += `<div class="section-title">对手牌型（比我大的概率：0.00%）</div><div>无</div>`;
+      }
+
+      resultDiv.innerHTML = resultHTML;
+      resultDiv.style.display = 'block';
+    }
+
+    function clearAll() {
+      document.getElementById('myHand').value = '';
+      document.getElementById('opponentVisible').value = '';
+      document.getElementById('othersVisible').value = '';
+      document.getElementById('errorMessage').textContent = '';
+      document.getElementById('result').style.display = 'none';
+    }
+
+    // 可选：注册 Service Worker（支持离线）
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then(reg => console.log('Service Worker 注册成功:', reg.scope))
+          .catch(err => console.warn('Service Worker 注册失败:', err));
+      });
+    }
+  </script>
+</body>
+</html>
